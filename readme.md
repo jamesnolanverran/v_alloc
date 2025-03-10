@@ -2,9 +2,9 @@
 
 ## Overview
 
-`v_alloc` is a lightweight, cross-platform virtual memory allocator designed for dynamic memory management. It provides two key allocation strategies:
+`v_alloc` is a lightweight, cross-platform virtual memory allocator. It provides two key allocation strategies:
 
-1. **Bump Arena Allocation** – A simple, fast, and resettable allocator that allows sequential allocations with minimal overhead.
+1. **Bump Arena Allocation** – A simple bump allocator that allows sequential allocations with minimal overhead.
 2. **Reallocation (Stable Virtual Memory)** – A `realloc`-like API that embeds metadata in the allocation and never moves the base pointer, leveraging OS-level virtual memory mechanisms (`mmap` on POSIX and `VirtualAlloc` on Windows).
 
 ## Features
@@ -13,7 +13,7 @@
 - **Stable pointers** – memory is never moved after allocation
 - **Bump allocator with reset support** – efficient for temporary allocations
 - **Efficient virtual memory management** – avoids copying overhead
-- **Drop-in ****\`\`**** replacement** – through `v_alloc_realloc`
+- **Drop-in realloc replacement** – through `v_alloc_realloc`
 
 ## API
 
