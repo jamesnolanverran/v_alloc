@@ -220,19 +220,19 @@ static inline AllocHdr *v_alloc_hdr_from_data(void *data) {
 }
 
 // same as above but param is total size in bytes - mimic behaviour of realloc but user is required to manage AllocInfo
-void* v_alloc_grow(AllocInfo *alloc_info, size_t total_size) {
-    if(total_size == 0){ 
+void* v_alloc_resize(AllocInfo *alloc_info, size_t size_in_bytes) {
+    if(size_in_bytes == 0){ 
         v_alloc_free(alloc_info);
         return NULL;
     }
-    if (total_size > (size_t)(alloc_info->end - alloc_info->base)) {
+    if (size_in_bytes > (size_t)(alloc_info->end - alloc_info->base)) {
         if(alloc_info->base == 0){ // reserve default
             if(!v_alloc_reserve(alloc_info, MAX_ARENA_CAPACITY)){
                 return NULL; // unable to reserve memory
             }
         }
         // internally we align_up to page_size
-        size_t adjusted_size_in_bytes = ALIGN_UP(total_size, alloc_info->page_size);
+        size_t adjusted_size_in_bytes = ALIGN_UP(size_in_bytes, alloc_info->page_size);
 
         if (adjusted_size_in_bytes + alloc_info->base > alloc_info->base + alloc_info->reserved_size) {
             return NULL; // out of reserved memory
@@ -261,7 +261,7 @@ void *v_alloc_realloc(void *data, size_t total_size){
     total_size += offsetof(AllocHdr, data);
     if(!data){
         AllocInfo alloc_info = {0};
-        if(!v_alloc_grow(&alloc_info, total_size)) {
+        if(!v_alloc_resize(&alloc_info, total_size)) {
             return NULL;
         }
         alloc_hdr = (AllocHdr*)alloc_info.base;
@@ -269,7 +269,7 @@ void *v_alloc_realloc(void *data, size_t total_size){
         return alloc_hdr->data;
     }
     alloc_hdr = v_alloc_hdr_from_data(data);
-    if(!v_alloc_grow(&alloc_hdr->alloc_info, total_size)) {
+    if(!v_alloc_resize(&alloc_hdr->alloc_info, total_size)) {
         return NULL;
     }
     return alloc_hdr->data;

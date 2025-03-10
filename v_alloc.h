@@ -1,6 +1,7 @@
 #ifndef V_ALLOC_H
 #define V_ALLOC_H
 #include <stdbool.h>
+#include <stddef.h>
 
 #ifndef V_ALLOC_ALIGNMENT
     #define V_ALLOC_ALIGNMENT 16
@@ -21,6 +22,6 @@ bool v_alloc_decommit(AllocInfo *alloc_info, size_t extra_size);
 void v_alloc_reset(AllocInfo* alloc_info);
 bool v_alloc_free(AllocInfo* alloc_info);
 
-void* v_alloc_grow(AllocInfo *alloc_info, size_t total_size);
+void* v_alloc_resize(AllocInfo *alloc_info, size_t size_in_bytes);
 void *v_alloc_realloc(void *data, size_t total_size);
 #endif // V_ALLOC_H
