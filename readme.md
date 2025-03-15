@@ -1,4 +1,4 @@
-# v\_alloc: Cross-Platform Virtual Memory Arena Allocator
+# v_alloc: Cross-Platform Virtual Memory Arena Allocator
 
 ## Overview
 
@@ -88,7 +88,7 @@ if (!v_alloc_resize(&alloc_info, 1024)) {
 
 ### `v_alloc_realloc(void *data, size_t total_size)`
 
-Acts like `realloc`, embedding `AllocInfo` in the allocation itself.
+Acts like `realloc`, same as v_alloc_resize, but embedding `AllocInfo` in the allocation itself.
 
 - If `data == NULL`, it creates a new allocation.
 - If `total_size == 0`, it frees the allocation.
@@ -104,10 +104,6 @@ str = v_alloc_realloc(str, 128); // Grows allocation without moving it
 v_alloc_realloc(str, 0); // Frees allocation
 ```
 
-### `v_alloc_hdr_from_data(void *data)`
-
-Retrieves the embedded `AllocInfo` from a pointer returned by `v_alloc_realloc`.
-
 ## Example: Using `v_alloc` with DMAP
 
 The following example integrates `v_alloc_realloc` with DMAP, ensuring stable pointers for dynamically growing data structures.
@@ -115,7 +111,7 @@ The following example integrates `v_alloc_realloc` with DMAP, ensuring stable po
 ```c
 size_t *dmap_1 = NULL;
 dmap_kstr_init(dmap_1, 256, v_alloc_realloc);
-
+// use dmap normally
 char *test_key = "test_key";
 size_t idx = dmap_kstr_insert(dmap_1, test_key, 144, strlen(test_key));
 assert(dmap_1[idx] == 144);
@@ -136,17 +132,10 @@ typedef struct AllocHdr {
 } AllocHdr;
 ```
 
-To retrieve the allocator metadata from a pointer:
-
-```c
-AllocHdr *hdr = v_alloc_hdr_from_data(ptr);
-```
-
 ## Notes
 
-- \*\*Do not use \*\*`** on pointers from **` – always free them using `v_alloc_realloc(ptr, 0)`.
+- Do not use `free()` on pointers from `v_alloc`, use `v_alloc_free` or `v_alloc_realloc(ptr, 0)`.
 - Memory is only committed when needed, making it efficient for large reserved regions.
-- `v_alloc_resize` is for explicit control over allocation, while `v_alloc_realloc` is higher-level and self-contained.
 
 ## License
 
