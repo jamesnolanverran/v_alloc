@@ -114,7 +114,7 @@ typedef struct {
     static bool v_alloc_posix_commit(void *addr, size_t total_size, size_t additional_bytes) {
         addr = (char *)addr + total_size - additional_bytes;
         s32 result = mprotect(addr, additional_bytes, PROT_READ | PROT_WRITE);
-        return result ? true : false;
+        return result == 0;
     }
     static bool v_alloc_posix_decommit(void *addr, size_t extra_size) {
         s32 result = madvise(addr, extra_size, MADV_DONTNEED);
