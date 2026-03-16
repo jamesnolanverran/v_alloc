@@ -64,14 +64,14 @@ typedef struct {
         return result ? true : false;
     }
     static bool v_alloc_win_decommit(void *addr, size_t extra_size) {
-        // VirtualFree(base_addr + 1MB, MEM_DECOMMIT, extra_size);
+        // VirtualFree(base_addr + 1MB, extra_size, MEM_DECOMMIT);
     /* 
         "The VirtualFree function can decommit a range of pages that are in 
         different states, some committed and some uncommitted. This means 
         that you can decommit a range of pages without first determining 
         the current commitment state of each page."
     */
-        BOOL success = VirtualFree(addr, MEM_DECOMMIT, (DWORD)extra_size);
+        BOOL success = VirtualFree(addr, extra_size, MEM_DECOMMIT);
         return success ? true : false;
     }
     static bool v_alloc_win_release(void *addr, size_t size) {
