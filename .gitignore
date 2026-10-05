@@ -2,3 +2,5 @@ build/
 *.log
 *.srcmap
 *.srcnav
+# local-only convenience wrapper (machine specific)
+local.bat
