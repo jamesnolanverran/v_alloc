@@ -211,6 +211,23 @@ typedef struct AllocHdr {
 - Do not use `free()` on pointers from `v_alloc`, use `v_alloc_free` or `v_alloc_realloc(ptr, 0)`.
 - Memory is only committed when needed, making it efficient for large reserved regions.
 
+## Tests
+
+`tests\` holds an [mtest](../mverse-libs/mtest/README.md) suite for the bump
+allocator (`v_alloc_test.c`), the resize/realloc API
+(`v_alloc_realloc_test.c`), and an assert-enabled probe for the strict-LIFO
+release check (`examples\lifo_violation.c`). From the repository root:
+
+```
+cd tests
+cmd /c build.bat
+```
+
+The shared runner needs the `mverse` compiler and `clang` on `PATH` (see the
+mtest README). Because `v_alloc` is not part of `mverse-libs`, `tests\build.bat`
+points the runner at its own directory with `TST_DIR`. Build products land under
+`tests\build\`, and the runner exits `0` only when every case passes.
+
 ## License
 
 MIT License
