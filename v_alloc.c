@@ -1,4 +1,5 @@
 #include "v_alloc.h"
+#include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -64,14 +65,14 @@ typedef struct {
         return result ? true : false;
     }
     static bool v_alloc_win_decommit(void *addr, size_t extra_size) {
-        // VirtualFree(base_addr + 1MB, MEM_DECOMMIT, extra_size);
+        // VirtualFree(base_addr + 1MB, extra_size, MEM_DECOMMIT);
     /* 
         "The VirtualFree function can decommit a range of pages that are in 
         different states, some committed and some uncommitted. This means 
         that you can decommit a range of pages without first determining 
         the current commitment state of each page."
     */
-        BOOL success = VirtualFree(addr, MEM_DECOMMIT, (DWORD)extra_size);
+        BOOL success = VirtualFree(addr, (SIZE_T)extra_size, MEM_DECOMMIT);
         return success ? true : false;
     }
     static bool v_alloc_win_release(void *addr, size_t size) {
@@ -114,7 +115,7 @@ typedef struct {
     static bool v_alloc_posix_commit(void *addr, size_t total_size, size_t additional_bytes) {
         addr = (char *)addr + total_size - additional_bytes;
         s32 result = mprotect(addr, additional_bytes, PROT_READ | PROT_WRITE);
-        return result ? true : false;
+        return result == 0;
     }
     static bool v_alloc_posix_decommit(void *addr, size_t extra_size) {
         s32 result = madvise(addr, extra_size, MADV_DONTNEED);
@@ -145,20 +146,21 @@ bool v_alloc_reserve(AllocInfo *alloc_info, size_t reserve_size) {
     alloc_info->end = alloc_info->base; // because we're only reserving
     alloc_info->reserved_size = reserve_size;
     alloc_info->page_size = v_alloc.page_size;
+    alloc_info->mark_depth = 0;
     return true; 
 }
 // commits initial size or grows alloc_info by additional size, returns NULL on fail
-void* v_alloc_committ(AllocInfo *alloc_info, size_t additional_bytes) {
+void* v_alloc_commit(AllocInfo *alloc_info, size_t additional_bytes) {
     if(additional_bytes == 0){ // we will consider this an error
         return NULL;
     }
     additional_bytes = ALIGN_UP(additional_bytes, V_ALLOC_ALIGNMENT);
-    if (additional_bytes > (size_t)(alloc_info->end - alloc_info->ptr)) {
-        if(alloc_info->base == 0){ // reserve default
-            if(!v_alloc_reserve(alloc_info, MAX_ARENA_CAPACITY)){
-                return NULL; // unable to reserve memory
-            }
+    if(alloc_info->base == 0){ // reserve default
+        if(!v_alloc_reserve(alloc_info, MAX_ARENA_CAPACITY)){
+            return NULL; // unable to reserve memory
         }
+    }
+    if (additional_bytes > (size_t)(alloc_info->end - alloc_info->ptr)) {
         // internally we align_up to page_size
         size_t adjusted_additional_bytes = ALIGN_UP(additional_bytes, alloc_info->page_size);
 
@@ -166,8 +168,7 @@ void* v_alloc_committ(AllocInfo *alloc_info, size_t additional_bytes) {
             return NULL; // out of reserved memory
         }
         size_t new_size = alloc_info->end - alloc_info->base + adjusted_additional_bytes;
-        int result = v_alloc.commit(alloc_info->base, new_size, adjusted_additional_bytes);
-        if (result == -1) {
+        if (!v_alloc.commit(alloc_info->base, new_size, adjusted_additional_bytes)) {
             return NULL; // failed commit
         }
         alloc_info->end = alloc_info->base + new_size;
@@ -181,6 +182,7 @@ void v_alloc_reset(AllocInfo *alloc_info) {
     // todo: decommit
     if(alloc_info){
         alloc_info->ptr = alloc_info->base;
+        alloc_info->mark_depth = 0;
     }
 }
 bool v_alloc_decommit(AllocInfo *alloc_info, size_t extra_size) {
@@ -209,6 +211,28 @@ bool v_alloc_free(AllocInfo* alloc_info) {
     return v_alloc.release(alloc_info->base, alloc_info->reserved_size);
 }
 
+// Snapshots the arena cursor and increments the nesting depth. The returned
+// mark must be released in strict LIFO order (see v_alloc_release).
+VAllocMark v_alloc_mark(AllocInfo *info) {
+    VAllocMark mark;
+    mark.ptr = info->ptr;
+    info->mark_depth += 1;
+    mark.depth = info->mark_depth;
+    return mark;
+}
+
+// Rewinds the cursor to the marked position. Only the cursor moves: committed
+// pages stay committed and are reused by later allocations. Asserts strict LIFO
+// nesting and that the mark still lies inside the arena.
+void v_alloc_release(AllocInfo *info, VAllocMark mark) {
+    assert(info->mark_depth == mark.depth &&
+           "v_alloc_release: marks must be released in strict LIFO order");
+    assert(info->base <= mark.ptr && mark.ptr <= info->ptr &&
+           "v_alloc_release: mark is outside the arena");
+    info->ptr = mark.ptr;
+    info->mark_depth = mark.depth - 1;
+}
+
 
 typedef struct AllocHdr {  
     AllocInfo alloc_info; 
@@ -225,12 +249,12 @@ void* v_alloc_resize(AllocInfo *alloc_info, size_t size_in_bytes) {
         v_alloc_free(alloc_info);
         return NULL;
     }
-    if (size_in_bytes > (size_t)(alloc_info->end - alloc_info->base)) {
-        if(alloc_info->base == 0){ // reserve default
-            if(!v_alloc_reserve(alloc_info, MAX_ARENA_CAPACITY)){
-                return NULL; // unable to reserve memory
-            }
+    if(alloc_info->base == 0){ // reserve default
+        if(!v_alloc_reserve(alloc_info, MAX_ARENA_CAPACITY)){
+            return NULL; // unable to reserve memory
         }
+    }
+    if (size_in_bytes > (size_t)(alloc_info->end - alloc_info->base)) {
         // internally we align_up to page_size
         size_t adjusted_size_in_bytes = ALIGN_UP(size_in_bytes, alloc_info->page_size);
 
@@ -238,8 +262,7 @@ void* v_alloc_resize(AllocInfo *alloc_info, size_t size_in_bytes) {
             return NULL; // out of reserved memory
         }
         size_t additional_bytes =  adjusted_size_in_bytes - (alloc_info->end - alloc_info->base);
-        int result = v_alloc.commit(alloc_info->base, adjusted_size_in_bytes, additional_bytes);
-        if (result == -1) {
+        if (!v_alloc.commit(alloc_info->base, adjusted_size_in_bytes, additional_bytes)) {
             return NULL; // failed commit
         }
         alloc_info->end = alloc_info->base + adjusted_size_in_bytes;

@@ -11,29 +11,58 @@
 
 - **Cross-platform support** (Linux, macOS, Windows)
 - **Stable pointers** – memory is never moved after allocation
-- **Bump allocator with reset support** – efficient for temporary allocations
+- **Bump allocator with reset and mark/release scopes** – efficient for temporary allocations
 - **Efficient virtual memory management** – avoids copying overhead
 - **Drop-in realloc replacement** – through `v_alloc_realloc`
+
+## AllocInfo
+
+`AllocInfo` describes one reserved arena. It is not a plain two-field struct:
+
+```c
+typedef struct AllocInfo {
+    char*  base;           // start of the reserved region
+    char*  ptr;            // current bump cursor
+    char*  end;            // end of the committed region
+    size_t reserved_size;  // total bytes reserved (never committed up front)
+    size_t page_size;      // OS page size for this arena
+    size_t mark_depth;     // current mark/release nesting depth (0 when none)
+} AllocInfo;
+```
+
+`base` and `reserved_size` describe the whole reservation, while `end` tracks how much of it has actually been committed. `ptr` is the bump cursor advanced by `v_alloc_commit`. `mark_depth` counts outstanding `v_alloc_mark` scopes and is maintained by `v_alloc_mark`/`v_alloc_release`/`v_alloc_reset`; callers do not set it directly.
 
 ## API
 
 ### Bump Arena Allocation
 
-#### `v_alloc_reserve(AllocInfo *alloc_info, size_t reserve_size)`
+#### `bool v_alloc_reserve(AllocInfo *alloc_info, size_t reserve_size)`
 
-Reserves a large virtual memory region for use with the bump allocator.
+Reserves a large virtual memory region for use with the bump allocator. The region is reserved but not committed. Returns `true` on success and `false` on failure.
 
-#### `v_alloc_committ(AllocInfo *alloc_info, size_t additional_bytes)`
+#### `void *v_alloc_commit(AllocInfo *alloc_info, size_t additional_bytes)`
 
-Allocates memory from the reserved region.
+Commits and allocates `additional_bytes` from the reserved region, growing the committed area when necessary. Returns a pointer to the usable memory on success, or `NULL` on failure. `v_alloc_commit(info, 0)` is treated as an error and returns `NULL`.
 
-#### `v_alloc_reset(AllocInfo *alloc_info)`
+> The Mverse copy of this allocator spells this function `v_alloc_committ`; the standalone `jlibs` copy uses the corrected `v_alloc_commit` spelling. The API is otherwise identical.
 
-Resets the allocator, making all memory available for reuse without deallocation.
+#### `bool v_alloc_decommit(AllocInfo *alloc_info, size_t extra_size)`
 
-#### `v_alloc_free(AllocInfo *alloc_info)`
+Decommits the trailing committed region of the arena and adjusts `alloc_info->end` to the new boundary. `extra_size` is aligned up to the page size and must be page-representable; the decommitted region starts at the page-aligned boundary derived from `end - extra_size`. Returns `true` on success and `false` for invalid input (a `NULL` allocator or `extra_size == 0`), when `extra_size` exceeds the committed size, or when the underlying OS decommit fails.
 
-Frees an allocated virtual memory region.
+Only decommit memory that is **not in use**. Do not decommit into live allocations below `ptr` – the function does not track live allocations and will not refuse such a call; call `v_alloc_reset` first to release the whole committed region.
+
+#### `void v_alloc_reset(AllocInfo *alloc_info)`
+
+Resets the arena: sets `ptr` back to `base` and resets `mark_depth` to `0`. It does **not** decommit or release any pages – previously committed memory stays committed and is reused by later allocations. A `NULL` allocator is ignored.
+
+#### `bool v_alloc_free(AllocInfo *alloc_info)`
+
+Releases the entire reserved virtual memory region back to the OS. Returns `false` when `base == NULL` (nothing to free), otherwise returns the result of the underlying release.
+
+#### `VAllocMark v_alloc_mark(AllocInfo *info)` / `void v_alloc_release(AllocInfo *info, VAllocMark mark)`
+
+Scope-based rewinding of the bump cursor. See [Memory Scopes: Mark and Release](#memory-scopes-mark-and-release).
 
 **Example:**
 
@@ -47,7 +76,7 @@ if (!v_alloc_reserve(&alloc_info, reserve_size)) {
 
 // Allocate a string using the bump allocator
 size_t str_len = 32;
-char *str = v_alloc_committ(&alloc_info, str_len + 1);
+char *str = v_alloc_commit(&alloc_info, str_len + 1);
 if (!str) {
     // handle error
 }
@@ -58,7 +87,7 @@ printf("%s\n", str);
 v_alloc_reset(&alloc_info);
 
 // Allocate another object
-int *arr = v_alloc_committ(&alloc_info, 10 * sizeof(int));
+int *arr = v_alloc_commit(&alloc_info, 10 * sizeof(int));
 if (!arr) {
     // handle error
 }
@@ -71,11 +100,56 @@ if (!v_alloc_free(&alloc_info)) {
 }
 ```
 
+## Memory Scopes: Mark and Release
+
+A mark snapshots the current bump cursor so that everything allocated after it can be handed back in one step.
+
+- `VAllocMark v_alloc_mark(AllocInfo *info)` records `info->ptr` in the returned mark and increments `info->mark_depth`. The mark's `depth` is the **1-based** nesting level of the scope (the first mark has depth `1`, the next nested mark depth `2`, and so on).
+- `void v_alloc_release(AllocInfo *info, VAllocMark mark)` rewinds `info->ptr` to `mark.ptr` and restores `mark_depth` to `mark.depth - 1`.
+
+Marks must be released in **strict LIFO order**: the most recently taken mark is the one to release next. `v_alloc_release` asserts both the LIFO depth (`info->mark_depth == mark.depth`) and that the mark still lies inside the arena (`base <= mark.ptr <= ptr`). These are `assert`s: they are active in debug builds and compiled out when `NDEBUG` is defined.
+
+Releasing only moves the cursor. Committed pages stay committed and are reused by later allocations – `v_alloc_release` does **not** decommit or free anything. To actually return pages to the OS, use `v_alloc_decommit` or `v_alloc_free`.
+
+```c
+AllocInfo arena = {0};
+v_alloc_reserve(&arena, 1024 * 1024);
+
+VAllocMark outer = v_alloc_mark(&arena);
+
+int *a = v_alloc_commit(&arena, 16 * sizeof(int));
+// ... use a ...
+
+{
+    VAllocMark inner = v_alloc_mark(&arena);
+    int *b = v_alloc_commit(&arena, 16 * sizeof(int));
+    // ... use b ...
+    v_alloc_release(&arena, inner); // rewinds b; a stays valid
+}
+
+v_alloc_release(&arena, outer);     // rewinds a
+```
+
+## Failure and return conventions
+
+- `v_alloc_reserve` returns `bool`: `false` on failure.
+- `v_alloc_commit` returns a usable pointer, or `NULL` on failure; `v_alloc_commit(info, 0)` is treated as an error and returns `NULL`.
+- `v_alloc_decommit` and `v_alloc_free` return `bool`. `v_alloc_free` returns `false` when `base == NULL`.
+- `v_alloc_reset` returns `void`.
+- `v_alloc_resize` returns the arena base pointer, or `NULL` on failure.
+- `v_alloc_realloc` returns a usable pointer or `NULL`:
+  - `v_alloc_realloc(NULL, n)` allocates a new block;
+  - `v_alloc_realloc(ptr, 0)` frees the block and returns `NULL`;
+  - `v_alloc_realloc(NULL, 0)` is a no-op returning `NULL`.
+- `v_alloc_mark` always returns a `VAllocMark`; `v_alloc_release` returns `void`.
+
+On failure memory is not consumed and existing allocations stay valid.
+
 ## Reallocation API
 
 ### `v_alloc_resize(AllocInfo *alloc_info, size_t size_in_bytes)`
 
-Resizes an allocation, manually managing an `AllocInfo` struct. If `size_in_bytes == 0`, the memory is freed.
+Resizes an allocation, manually managing an `AllocInfo` struct. If `size_in_bytes == 0`, the memory is freed and `NULL` is returned. On success it returns the arena base pointer.
 
 **Example:**
 
@@ -140,4 +214,3 @@ typedef struct AllocHdr {
 ## License
 
 MIT License
-
