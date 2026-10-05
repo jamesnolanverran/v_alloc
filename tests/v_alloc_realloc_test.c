@@ -4,7 +4,7 @@
 // reservation, zero-size free, out-of-reservation rejection, and
 // v_alloc_realloc header-based allocation, in-place growth across pages,
 // pattern preservation, and null/zero/over-reservation edge cases.
-@import("mverse-libs/mtest/mtest.h")
+@import("mtest/mtest.h")
 @import("v_alloc/v_alloc.h")
 #include <stdint.h>
 #include <string.h>

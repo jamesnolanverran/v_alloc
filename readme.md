@@ -211,20 +211,24 @@ typedef struct AllocHdr {
 
 ## Tests
 
-`tests\` holds an [mtest](../mverse-libs/mtest/README.md) suite for the bump
-allocator (`v_alloc_test.c`), the resize/realloc API
-(`v_alloc_realloc_test.c`), and an assert-enabled probe for the strict-LIFO
-release check (`examples\lifo_violation.c`). From the repository root:
+`tests\` holds an mtest suite covering the bump-allocator contract
+(`v_alloc_test.c`), the resize/realloc API (`v_alloc_realloc_test.c`), and an
+assert-enabled probe for the strict-LIFO release check
+(`examples\lifo_violation.c`).
+
+mtest is an external dependency and is not part of this repository. Point
+`MVERSELIBS` at a checkout of the `mverse-libs` repository (the directory that
+contains `mtest\`), and make the `mverse` compiler (set `MVERSE` to `mverse.exe`
+or its directory) and `clang` available:
 
 ```
+set MVERSELIBS=D:\path\to\mverse-libs
 cd tests
 cmd /c build.bat
 ```
 
-The shared runner needs the `mverse` compiler and `clang` on `PATH` (see the
-mtest README). Because `v_alloc` is not part of `mverse-libs`, `tests\build.bat`
-points the runner at its own directory with `TST_DIR`. Build products land under
-`tests\build\`, and the runner exits `0` only when every case passes.
+Build products land under `tests\build\`, and the runner exits `0` only when
+every case passes.
 
 ## License
 

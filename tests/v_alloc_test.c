@@ -4,7 +4,7 @@
 // growth across boundaries, zero/exact/over-reservation commit behavior,
 // implicit reservation, reset semantics, mark/release LIFO nesting and reuse,
 // decommit behavior and rejection of invalid input, plus free/null handling.
-@import("mverse-libs/mtest/mtest.h")
+@import("mtest/mtest.h")
 @import("v_alloc/v_alloc.h")
 #include <stdint.h>
 #include <string.h>
