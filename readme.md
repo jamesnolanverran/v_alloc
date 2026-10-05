@@ -44,8 +44,6 @@ Reserves a large virtual memory region for use with the bump allocator. The regi
 
 Commits and allocates `additional_bytes` from the reserved region, growing the committed area when necessary. Returns a pointer to the usable memory on success, or `NULL` on failure. `v_alloc_commit(info, 0)` is treated as an error and returns `NULL`.
 
-> The Mverse copy of this allocator spells this function `v_alloc_committ`; the standalone `jlibs` copy uses the corrected `v_alloc_commit` spelling. The API is otherwise identical.
-
 #### `bool v_alloc_decommit(AllocInfo *alloc_info, size_t extra_size)`
 
 Decommits the trailing committed region of the arena and adjusts `alloc_info->end` to the new boundary. `extra_size` is aligned up to the page size and must be page-representable; the decommitted region starts at the page-aligned boundary derived from `end - extra_size`. Returns `true` on success and `false` for invalid input (a `NULL` allocator or `extra_size == 0`), when `extra_size` exceeds the committed size, or when the underlying OS decommit fails.
