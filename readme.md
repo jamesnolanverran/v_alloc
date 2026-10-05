@@ -211,24 +211,18 @@ typedef struct AllocHdr {
 
 ## Tests
 
-`tests\` holds an mtest suite covering the bump-allocator contract
-(`v_alloc_test.c`), the resize/realloc API (`v_alloc_realloc_test.c`), and an
-assert-enabled probe for the strict-LIFO release check
-(`examples\lifo_violation.c`).
-
-mtest is an external dependency and is not part of this repository. Point
-`MVERSELIBS` at a checkout of the `mverse-libs` repository (the directory that
-contains `mtest\`), and make the `mverse` compiler (set `MVERSE` to `mverse.exe`
-or its directory) and `clang` available:
+The tests are plain C and need nothing beyond a C11 compiler:
 
 ```
-set MVERSELIBS=D:\path\to\mverse-libs
-cd tests
-cmd /c build.bat
+make test        # POSIX, or anywhere with make
+tests\run.bat    # Windows
 ```
 
-Build products land under `tests\build\`, and the runner exits `0` only when
-every case passes.
+`tests\test_v_alloc.c` covers the API in two sections: the common use patterns
+first, then the detailed behaviour, edge cases and failure modes.
+`tests\test_lifo_abort.c` releases marks out of order on purpose and is expected
+to abort — that is how the strict-LIFO assertion is checked. Build products go
+to `build\`; `make clean` removes them.
 
 ## License
 
